@@ -22,7 +22,9 @@ DATASETS_DICT = {"mnist": "MNIST",
                  "fashion": "FashionMNIST",
                  "dsprites": "DSprites",
                  "celeba": "CelebA",
-                 "chairs": "Chairs"}
+                 "chairs": "Chairs",
+                 "cars": "Cars3D"
+                 }
 DATASETS = list(DATASETS_DICT.keys())
 
 
@@ -421,3 +423,58 @@ def preprocess(root, size=(64, 64), img_format='JPEG', center_crop=None):
             img.crop((left, top, right, bottom))
 
         img.save(img_path, img_format)
+
+
+class Cars3D(DisentangledDataset):
+    """Cars3D Dataset from [1].
+
+    Notes
+    -----
+    - Link : https://ai.stanford.edu/~jkrause/cars/car_dataset.html 
+
+    Parameters
+    ----------
+    root : string
+        Root directory of dataset.
+
+    References
+    ----------
+    [1] Krause, J., Stark, M., Deng, J. and Fei-Fei, L., 2013. 3d object representations for 
+        fine-grained categorization. 
+        In Proceedings of the IEEE International Conference on Computer Vision Workshops (pp. 554-561).
+    """
+
+    urls = {"train": None}
+    files = {"train": "JPEG"}
+    img_size = (3, 64, 64)
+    background_color = COLOUR_WHITE
+ 
+    def __init__(self, root=os.path.join(DIR, '../data/cars'), **kwargs):
+        super().__init__(root, [transforms.ToTensor()], **kwargs)
+
+        self.imgs = glob.glob(self.train_data + '/*mesh*')
+    def download(self, *args):
+        pass
+    def __getitem__(self, idx):
+        """Get the image of `idx`
+
+        Return
+        ------
+        sample : torch.Tensor
+            Tensor in [0.,1.] of shape `img_size`.
+
+        placeholder :
+            Placeholder value as their are no targets.
+        """
+        img_path = self.imgs[idx]
+        # img values already between 0 and 255
+        img = imread(img_path)
+
+        # put each pixel in [0.,1.] and reshape to (C x H x W)
+        img = self.transforms(img)
+
+        # no label so return 0 (note that can't return None because)
+        # dataloaders requires so
+        return img, 0
+
+
