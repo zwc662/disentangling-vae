@@ -1,7 +1,7 @@
 # directories
 venv*/
 data/
-#results/*
+results/*
 notebooks/
 old*
 trained_models/
@@ -25,7 +25,7 @@ __pycache__/
 .DS_Store
 
 # files
-.gitignore
+#.gitignore
 
 # extensions
 *.pyc
@@ -37,6 +37,7 @@ __pycache__/
 *.sublime*
 *.swp
 *.out
+*.png
 
 # placeholders to keep directories
 !.keep
