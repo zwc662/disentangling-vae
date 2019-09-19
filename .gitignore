@@ -1,7 +1,7 @@
 # directories
 venv*/
 data/
-results/*
+#results/*
 notebooks/
 old*
 trained_models/
@@ -37,7 +37,7 @@ __pycache__/
 *.sublime*
 *.swp
 *.out
-*.png
+#*.png
 
 # placeholders to keep directories
 !.keep
