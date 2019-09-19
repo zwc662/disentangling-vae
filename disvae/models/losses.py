@@ -442,7 +442,10 @@ def _reconstruction_loss(data, recon_data, distribution="bernoulli", storer=None
     loss = loss / batch_size
 
     if storer is not None:
-        storer['recon_loss'].append(loss.item())
+        storer['recon_loss_0'].append(loss.item())
+    
+        error = F.mse_loss(recon_data, data, reduction = "sum") / batch_size
+        storer['recon_error_0'].append(error.item())
 
     return loss
 
@@ -540,3 +543,4 @@ def _get_log_pz_qz_prodzi_qzCx(latent_sample, latent_dist, n_data, is_mss=True):
     log_prod_qzi = torch.logsumexp(mat_log_qz, dim=1, keepdim=False).sum(1)
 
     return log_pz, log_qz, log_prod_qzi, log_q_zCx
+

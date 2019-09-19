@@ -79,6 +79,7 @@ class Visualizer():
         if loss_of_interest is not None:
             self.losses = read_loss_from_file(os.path.join(self.model_dir, TRAIN_FILE),
                                               loss_of_interest)
+            self.error = read_loss_from_file(os.path.join(self.model_dir, TRAIN_FILE), 'recon_error_')[0]	
 
     def _get_traversal_range(self, mean=0, std=1):
         """Return the corresponding traversal range in absolute terms."""
@@ -322,7 +323,7 @@ class Visualizer():
 
         if is_show_text:
             losses = sorted(self.losses, reverse=True)[:n_latents]
-            labels = ['orig', 'recon'] + ["KL={:.4f}".format(l) for l in losses]
+            labels = ['orig', 'recon:{}'.format(self.error)] + ["KL={:.4f}".format(l) for l in losses]
             concatenated = add_labels(concatenated, labels)
 
         filename = os.path.join(self.model_dir, PLOT_NAMES["reconstruct_traverse"])
