@@ -38,6 +38,7 @@ __pycache__/
 *.swp
 *.out
 #*.png
+*.gif
 
 # placeholders to keep directories
 !.keep
