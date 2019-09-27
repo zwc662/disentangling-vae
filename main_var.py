@@ -233,6 +233,7 @@ def synthesize(args):
 	model_var_dir = os.path.join(exp_dir, 'var/model-400.pt')
 	model_var = VAR(args.img_size)	
 	model_var.load_state_dict(torch.load(model_var_dir), strict = False)
+	"""
 	img = np.random.random([3, 64, 64])
 	x = torch.tensor(img, requires_grad = True).unsqueeze(0).float()
 	eps = 1e-5
@@ -250,10 +251,25 @@ def synthesize(args):
 	img = x.squeeze(0).detach().cpu().numpy()
 	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(2, 1, 0)
 	matplotlib.image.imsave('var.png', img)
-	img = Image.fromarray(img)
-	img.save('var.png')
-	img.show()
+	"""
 	
+	# Prepare dataset
+	meta_data = load_metadata(exp_dir)
+	dataset = meta_data['dataset']
+	max_var = -float('inf')
+	max_data = None
+	test_loader = get_dataloaders(dataset, batch_size=1, logger=logger)
+	for i, (data, _) in enumerate(test_loader):
+		
+		var_ = model_var(data)
+		if var_ > max_var:
+			max_var = var_
+			max_data = data
+	img = data.squeeze(0).cpu().numpy()
+	print(img.shape)
+	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
+	matplotlib.image.imsave('var_.png', img)
+
 	
 		
 
