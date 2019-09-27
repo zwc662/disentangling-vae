@@ -284,8 +284,7 @@ def reconstruct(args):
 	logger.info("Root directory for loading experiments: {}".format(exp_dir))
 
 	# Prepare VAE model
-	model_vae_dir = os.path.join(exp_dir, '/model-400.pt')
-	model_vae = load_model(model_vae_dir, is_gpu = False)
+	model_vae = load_model(exp_dir, is_gpu = False)
 
 	args.img_size = get_img_size(args.dataset)
 	model_var_dir = os.path.join(exp_dir, 'var/model-400.pt')
@@ -309,9 +308,10 @@ def reconstruct(args):
 	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(2, 1, 0)
 	matplotlib.image.imsave('var.png', img)
 
-	x_recon = model_vae(x)	
-	img_recon = x.squeeze(0).detach().cpu().numpy()
-	img_recon = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(2, 1, 0)
+	x_recon, _, _ = model_vae(x)	
+	img_recon = x_recon.squeeze(0).detach().cpu().numpy()
+	print(img_recon.shape)
+	img_recon = (np.clip(img_recon, 0., 1.) * 255).astype(np.uint8).transpose(2, 1, 0)
 	matplotlib.image.imsave('var_recon.png', img_recon)
 	
 	# Prepare dataset
@@ -331,10 +331,10 @@ def reconstruct(args):
 	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
 	matplotlib.image.imsave('var_.png', img)
 
-	x_recon = model_vae(max_data)	
-	img_recon = x.squeeze(0).detach().cpu().numpy()
-	img_recon = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(2, 1, 0)
-	matplotlib.image.imsave('var_recon.png', img_recon)
+	x_recon, _, _ = model_vae(max_data)	
+	img_recon = x_recon.squeeze(0).detach().cpu().numpy()
+	img_recon = (np.clip(img_recon, 0., 1.) * 255).astype(np.uint8).transpose(2, 1, 0)
+	matplotlib.image.imsave('var_recon_.png', img_recon)
 		
 
 if __name__ == '__main__':
