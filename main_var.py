@@ -296,7 +296,7 @@ def reconstruct(args):
 	x_ = torch.zeros(x.size())
 	diff = torch.sum((x - x_)**2)
 	epoch = 0
-	while epoch <= args.epochs * 5 and diff >= eps:
+	while epoch <= args.epochs * 3 and diff >= eps:
 		epoch += 1
 		x_.copy_(x)
 		y = model_var(x)	
@@ -333,7 +333,7 @@ def reconstruct(args):
 
 	x_recon, _, _ = model_vae(max_data)	
 	img_recon = x_recon.squeeze(0).detach().cpu().numpy()
-	img_recon = (np.clip(img_recon, 0., 1.) * 255).astype(np.uint8).transpose(2, 1, 0)
+	img_recon = (np.clip(img_recon, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
 	matplotlib.image.imsave('var_recon_.png', img_recon)
 		
 
