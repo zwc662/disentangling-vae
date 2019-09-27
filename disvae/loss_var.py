@@ -17,16 +17,17 @@ from disvae.utils.math import (log_density_gaussian, log_importance_weight_matri
 # TO-DO: clean n_data and device
 def get_loss_f(loss_name, **kwargs_parse):
     """Return the correct loss function given the argparse arguments."""
-	return VarLoss()
+	return VarLoss(**kwargs_parse)
 
 class VarLoss(abc.ABC):
     def __init__(self, record_loss_every=50):
         self.n_train_steps = 0
         self.record_loss_every = record_loss_every
 
-    def __call__(self, data, recon_data, var, is_train, storer, **kwargs):
-		
-
+    def __call__(self, data, recon_data, var, is_train, storer, **kwargs):		
+		if 'reg' not in kwargs.keys():
+			kwargs['reg'] = 1.0
+		loss = torch.sum((data - recon_data)**2/(var**2)) + kwargs['reg'] * torch.sum(torch.log(var))
 
 		if storer is not None:
 			storer['loss'].append(loss.item())

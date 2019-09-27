@@ -79,7 +79,12 @@ class Visualizer():
         if loss_of_interest is not None:
             self.losses = read_loss_from_file(os.path.join(self.model_dir, TRAIN_FILE),
                                               loss_of_interest)
-            self.error = read_loss_from_file(os.path.join(self.model_dir, TRAIN_FILE), 'recon_error_')[0]	
+            try:
+              self.error = read_loss_from_file(os.path.join(self.model_dir, TRAIN_FILE), 'recon_error_')[0]	
+            except Exception as e:
+              print(e)
+              self.error = None
+              pass
 
     def _get_traversal_range(self, mean=0, std=1):
         """Return the corresponding traversal range in absolute terms."""

@@ -1,7 +1,7 @@
 {
     "batch_size": 64,
-    "betaB_G": 100,
-    "betaB_finC": 25,
+    "betaB_G": 4,
+    "betaB_finC": 0.1,
     "betaB_initC": 0,
     "betaH_B": 4,
     "btcvae_A": 1,
