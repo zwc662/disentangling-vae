@@ -6,6 +6,7 @@ from configparser import ConfigParser
 
 from torch import optim
 import torch
+from torchvision.utils import make_grid
 from PIL import Image
 import scipy.misc
 import matplotlib
@@ -215,7 +216,7 @@ def main(args):
 	trainer(train_loader, epochs = args.epochs, checkpoint_every = args.checkpoint_every,)
 
 	
-def test(args):
+def test_pre(args):
 	formatter = logging.Formatter('%(asctime)s %(levelname)s - %(funcName)s: %(message)s',
 									"%H:%M:%S")
 	logger = logging.getLogger(__name__)
@@ -236,8 +237,32 @@ def test(args):
 	model_var_dir = os.path.join(exp_dir, 'var/model-400.pt')
 	model_var = VAR(args.img_size)	
 	model_var.load_state_dict(torch.load(model_var_dir), strict = False)
-	img = np.random.random([3, 64, 64])
-	x = torch.tensor(img, requires_grad = True).unsqueeze(0).float()
+
+	meta_data = load_metadata(exp_dir)
+	dataset = meta_data['dataset']
+	test_loader = get_dataloaders(dataset, batch_size=args.batch_size, logger=logger)
+	loss_f = get_loss_f()
+
+	return model_var, model_vae, exp_dir, test_loader, loss_f
+
+def store_img(data, data_recon, model_var_dir, name = 'var', save = True):
+	img = data.squeeze(0).cpu().numpy()
+	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
+	if save:	
+		matplotlib.image.imsave(os.path.join(model_var_dir, name + '.png'), img)
+	
+	img_recon = data_recon.squeeze(0).detach().cpu().numpy()
+	img_recon = (np.clip(img_recon, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
+	if save:	
+		matplotlib.image.imsave(os.path.join(model_var_dir, name + '_recon.png'), img_recon)
+	return img, img_recon
+	
+def test_single(args):
+	args.batch_size = 1
+	model_var, model_vae, exp_dir, test_loader, loss_f = test_pre(args) 
+
+	# Synthesize image
+	x = torch.tensor(np.random.random([3, 64, 64]), requires_grad = True).unsqueeze(0).float()
 	eps = 1e-5
 	x_ = torch.zeros(x.size())
 	diff = torch.sum((x - x_)**2)
@@ -249,26 +274,21 @@ def test(args):
 		grad_x = torch.autograd.grad(y[0], x, retain_graph = True)[0].detach()
 		x = x - 0.005 * grad_x	
 		diff = torch.sum((x - x_)**2)
-	
 	x_recon, _, _ = model_vae(x)	
 	store_img(x.detach(), x_recon.detach(), os.path.join(exp_dir, 'var'), name = 'syn')
 	
-	# Prepare dataset
-	meta_data = load_metadata(exp_dir)
-	dataset = meta_data['dataset']
+	# Select from dataset
 	max_var = -float('inf')
 	max_data_var = None
 	max_loss = -float('inf')
 	max_data_loss = None 
-	test_loader = get_dataloaders(dataset, batch_size=1, logger=logger)
-	loss_f = get_loss_f()
 	for i, (data, _) in enumerate(test_loader):
 		data_var = model_var(data)
 		data_recon, _, _ = model_vae(data)
 		data_loss = loss_f(data, data_recon, data_var, is_train = False, storer = None)
 
-		if data_var > max_var:
-			max_var = data_var
+		if data_var**2 > max_var:
+			max_var = data_var**2
 			max_data_var = data
 			max_data_recon_var = data_recon
 		if data_loss > max_loss:
@@ -279,17 +299,65 @@ def test(args):
 	store_img(max_data_var, max_data_recon_var, os.path.join(exp_dir, 'var'), name = 'var')
 	store_img(max_data_loss, max_data_recon_loss, os.path.join(exp_dir, 'var'), name = 'loss') 	
 
-def store_img(data, data_recon, model_var_dir, name = 'var'):
-	img = data.squeeze(0).cpu().numpy()
-	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
-	matplotlib.image.imsave(os.path.join(model_var_dir, name + '.png'), img)
+def test_multiple(args, num_imgs = 10):
+	args.batch_size = 1
+	model_var, model_vae, exp_dir, test_loader, loss_f = test_pre(args) 
+
+	# Select from dataset
+	data_var_list = None
+	var_list = None
+	recon_var_list = None
+	data_loss_list = None
+	loss_list = None
+	recon_loss_list = None
+	for i, (data, _) in enumerate(test_loader):
+		data_var = model_var(data)
+		data_recon, _, _ = model_vae(data)
+		data_loss = float(loss_f(data, data_recon, data_var, is_train = False, storer = None).detach().item())
+		if data_var_list is None:
+			data_loss_list = data.detach()
+			data_var_list = data.detach()
+			var_list = data_var.detach()
+			loss_list = [i]
+			recon_loss_list = data_recon.detach()
+			recon_var_list = data_recon.detach()
+		else:
+			data_loss_list = torch.cat((data_loss_list, data.detach()), dim = 0)
+			data_var_list = torch.cat((data_var_list, data.detach()), dim = 0)
+			var_list = torch.cat((var_list, data_var.detach()), dim = 0)
+			loss_list.append(i)
+			#loss_list = torch.cat((loss_list, torch.tensor([[data_loss]])))
+			recon_loss_list = torch.cat((recon_loss_list, data_recon.detach()), dim = 0)
+			recon_var_list = torch.cat((recon_var_list, data_recon.detach()), dim = 0)
 	
-	img_recon = data_recon.squeeze(0).detach().cpu().numpy()
-	img_recon = (np.clip(img_recon, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
-	matplotlib.image.imsave(os.path.join(model_var_dir, name + '_recon.png'), img_recon)
+		
+	sorted_loss_data_recon_list = sorted(zip(loss_list, data_loss_list, recon_loss_list), reverse = True)[:num_imgs]
+	sorted_var_data_recon_list = sorted(zip(var_list, data_var_list, recon_var_list), reverse = True)[:num_imgs]
+	
+	
+	to_plot_var = None
+	to_plot_loss = None
+	
+	for i in range(num_imgs):	
+		data_var_list = torch.stack([j for _, j, _ in sorted_var_data_recon_list], dim = 0).reshape((num_imgs, *args.img_size))
+		recon_var_list = torch.stack([j for _, _, j in sorted_var_data_recon_list], dim = 0).reshape((num_imgs, *args.img_size))
+		data_loss_list = torch.stack([j for _, j, _ in sorted_loss_data_recon_list], dim = 0).reshape((num_imgs, *args.img_size))
+		recon_loss_list = torch.stack([j for _, _, j in sorted_loss_data_recon_list], dim = 0).reshape((num_imgs, *args.img_size))
+
+
+		to_plot_var = torch.cat([data_var_list, recon_var_list])
+		to_plot_loss = torch.cat([data_loss_list, recon_loss_list])
+	var_grid = make_grid(to_plot_var, nrow = num_imgs).mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+	loss_grid = make_grid(to_plot_loss, nrow = num_imgs).mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+	concatenated = Image.fromarray(np.concatenate((var_grid, loss_grid), axis = 0))	
+	file_path = os.path.join(exp_dir, 'var/multiple.png')	
+	print(file_path)
+	concatenated.save(file_path)
+
 
 if __name__ == '__main__':
 	args = parse_arguments(sys.argv[1:])
-	main(args) 
-	test(args)
+	#main(args) 
+	#test_single(args)
+	test_multiple(args)
 
