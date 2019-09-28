@@ -214,62 +214,8 @@ def main(args):
 						)
 	trainer(train_loader, epochs = args.epochs, checkpoint_every = args.checkpoint_every,)
 
-def synthesize(args):
-	formatter = logging.Formatter('%(asctime)s %(levelname)s - %(funcName)s: %(message)s',
-									"%H:%M:%S")
-	logger = logging.getLogger(__name__)
-	logger.setLevel(args.log_level.upper())
-	stream = logging.StreamHandler()
-	stream.setLevel(args.log_level.upper())
-	stream.setFormatter(formatter)
-	logger.addHandler(stream)
-
-	device = get_device(is_gpu = not args.no_cuda)
-	exp_dir = os.path.join(RES_DIR, args.name)
-	logger.info("Root directory for loading experiments: {}".format(exp_dir))
-
-	# Prepare VAE model
-	args.img_size = get_img_size(args.dataset)
-	model_var_dir = os.path.join(exp_dir, 'var/model-400.pt')
-	model_var = VAR(args.img_size)	
-	model_var.load_state_dict(torch.load(model_var_dir), strict = False)
-	img = np.random.random([3, 64, 64])
-	x = torch.tensor(img, requires_grad = True).unsqueeze(0).float()
-	eps = 1e-5
-	x_ = torch.zeros(x.size())
-	diff = torch.sum((x - x_)**2)
-	epoch = 0
-	while epoch <= args.epochs and diff >= eps:
-		epoch += 1
-		x_.copy_(x)
-		y = model_var(x)	
-		grad_x = torch.autograd.grad(y[0], x, retain_graph = True)[0].detach()
-		x = x - 0.005 * grad_x	
-		diff = torch.sum((x - x_)**2)
-		
-	img = x.squeeze(0).detach().cpu().numpy()
-	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(2, 1, 0)
-	matplotlib.image.imsave('var.png', img)
 	
-	# Prepare dataset
-	meta_data = load_metadata(exp_dir)
-	dataset = meta_data['dataset']
-	max_var = -float('inf')
-	max_data = None
-	test_loader = get_dataloaders(dataset, batch_size=1, logger=logger)
-	for i, (data, _) in enumerate(test_loader):
-		
-		var_ = model_var(data)
-		if var_ > max_var:
-			max_var = var_
-			max_data = data
-	img = data.squeeze(0).cpu().numpy()
-	print(img.shape)
-	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
-	matplotlib.image.imsave('var_.png', img)
-
-	
-def reconstruct(args):
+def test(args):
 	formatter = logging.Formatter('%(asctime)s %(levelname)s - %(funcName)s: %(message)s',
 									"%H:%M:%S")
 	logger = logging.getLogger(__name__)
@@ -344,7 +290,6 @@ def store_img(data, data_recon, model_var_dir, name = 'var'):
 
 if __name__ == '__main__':
 	args = parse_arguments(sys.argv[1:])
-	#main(args) 
-	#synthesize(args)
-	reconstruct(args)
+	main(args) 
+	test(args)
 
