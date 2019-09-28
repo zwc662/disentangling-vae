@@ -304,38 +304,43 @@ def reconstruct(args):
 		x = x - 0.005 * grad_x	
 		diff = torch.sum((x - x_)**2)
 	
-	img = x.squeeze(0).detach().cpu().numpy()
-	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
-	matplotlib.image.imsave('var.png', img)
-
 	x_recon, _, _ = model_vae(x)	
-	img_recon = x_recon.squeeze(0).detach().cpu().numpy()
-	print(img_recon.shape)
-	img_recon = (np.clip(img_recon, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
-	matplotlib.image.imsave('var_recon.png', img_recon)
+	store_img(x.detach(), x_recon.detach(), os.path.join(exp_dir, 'var'), name = 'syn')
 	
 	# Prepare dataset
 	meta_data = load_metadata(exp_dir)
 	dataset = meta_data['dataset']
 	max_var = -float('inf')
-	max_data = None
+	max_data_var = None
+	max_loss = -float('inf')
+	max_data_loss = None 
 	test_loader = get_dataloaders(dataset, batch_size=1, logger=logger)
+	loss_f = get_loss_f()
 	for i, (data, _) in enumerate(test_loader):
-		
-		var_ = model_var(data)
-		if var_ > max_var:
-			max_var = var_
-			max_data = data
-	img = data.squeeze(0).cpu().numpy()
-	print(img.shape)
-	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
-	matplotlib.image.imsave('var_.png', img)
+		data_var = model_var(data)
+		data_recon, _, _ = model_vae(data)
+		data_loss = loss_f(data, data_recon, data_var, is_train = False, storer = None)
 
-	x_recon, _, _ = model_vae(max_data)	
-	img_recon = x_recon.squeeze(0).detach().cpu().numpy()
+		if data_var > max_var:
+			max_var = data_var
+			max_data_var = data
+			max_data_recon_var = data_recon
+		if data_loss > max_loss:
+			max_loss = data_loss
+			max_data_loss = data
+			max_data_recon_loss = data_recon
+
+	store_img(max_data_var, max_data_recon_var, os.path.join(exp_dir, 'var'), name = 'var')
+	store_img(max_data_loss, max_data_recon_loss, os.path.join(exp_dir, 'var'), name = 'loss') 	
+
+def store_img(data, data_recon, model_var_dir, name = 'var'):
+	img = data.squeeze(0).cpu().numpy()
+	img = (np.clip(img, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
+	matplotlib.image.imsave(os.path.join(model_var_dir, name + '.png'), img)
+	
+	img_recon = data_recon.squeeze(0).detach().cpu().numpy()
 	img_recon = (np.clip(img_recon, 0., 1.) * 255).astype(np.uint8).transpose(1, 2, 0)
-	matplotlib.image.imsave('var_recon_.png', img_recon)
-		
+	matplotlib.image.imsave(os.path.join(model_var_dir, name + '_recon.png'), img_recon)
 
 if __name__ == '__main__':
 	args = parse_arguments(sys.argv[1:])
