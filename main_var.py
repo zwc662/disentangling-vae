@@ -318,14 +318,14 @@ def test_multiple(args, num_imgs = 10):
 			data_loss_list = data.detach()
 			data_var_list = data.detach()
 			var_list = data_var.detach()
-			loss_list = [i]
+			loss_list = [data_loss]
 			recon_loss_list = data_recon.detach()
 			recon_var_list = data_recon.detach()
 		else:
 			data_loss_list = torch.cat((data_loss_list, data.detach()), dim = 0)
 			data_var_list = torch.cat((data_var_list, data.detach()), dim = 0)
 			var_list = torch.cat((var_list, data_var.detach()), dim = 0)
-			loss_list.append(i)
+			loss_list.append(data_loss)
 			#loss_list = torch.cat((loss_list, torch.tensor([[data_loss]])))
 			recon_loss_list = torch.cat((recon_loss_list, data_recon.detach()), dim = 0)
 			recon_var_list = torch.cat((recon_var_list, data_recon.detach()), dim = 0)
@@ -357,7 +357,7 @@ def test_multiple(args, num_imgs = 10):
 
 if __name__ == '__main__':
 	args = parse_arguments(sys.argv[1:])
-	#main(args) 
+	main(args) 
 	#test_single(args)
 	test_multiple(args)
 
