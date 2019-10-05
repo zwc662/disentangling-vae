@@ -6,8 +6,10 @@ from configparser import ConfigParser
 
 from torch import optim
 import torch
+import torchvision.transforms.functional as TF
 from torchvision.utils import make_grid
-from PIL import Image
+
+from PIL import Image, ImageDraw
 import scipy.misc
 import matplotlib
 
@@ -19,10 +21,12 @@ from disvae.models.losses import LOSSES, RECON_DIST
 from disvae.training_var import Trainer
 from disvae.models.loss_var import get_loss_f
 from disvae.models.var import VAR
-from utils.datasets import get_dataloaders, get_img_size, DATASETS
+from utils.datasets import get_dataloaders, get_img_size, DATASETS, get_background
 from utils.helpers import (create_safe_directory, get_device, set_seed, get_n_param,
 						   get_config_section, update_namespace_, FormatterNoDuplicate)
 from utils.visualize import GifTraversalsTraining
+from utils.viz_helpers import add_labels
+from utils.mnist_classifier import Net as MNIST_Net
 
 CONFIG_FILE = "hyperparam.ini"
 RES_DIR = "results"
@@ -61,7 +65,8 @@ def parse_arguments(args_to_parse):
 						 help='Disables CUDA training, even when have one.')
 	general.add_argument('-s', '--seed', type=int, default=default_config['seed'],
 						 help='Random seed. Can be `None` for stochastic behavior.')
-
+	general.add_argument('-c', '--classifier', type = str,
+						 help='Name of the classifeir')
 	# Learning options
 	training = parser.add_argument_group('Training specific options')
 	training.add_argument('--checkpoint-every',
@@ -169,7 +174,7 @@ def parse_arguments(args_to_parse):
 
 	return args
 
-def main(args):
+def train(args):
 	formatter = logging.Formatter('%(asctime)s %(levelname)s - %(funcName)s: %(message)s',
 									"%H:%M:%S")
 	logger = logging.getLogger(__name__)
@@ -213,6 +218,9 @@ def main(args):
 						save_dir = model_var_dir,
 						is_progress_bar = not args.no_progress_bar,
 						)
+	args.epochs = 50
+	args.checkpoint_every = 10
+	print("Total number of epochs: {}".format(args.epochs))
 	trainer(train_loader, epochs = args.epochs, checkpoint_every = args.checkpoint_every,)
 
 	
@@ -234,7 +242,7 @@ def test_pre(args):
 	model_vae = load_model(exp_dir, is_gpu = False)
 
 	args.img_size = get_img_size(args.dataset)
-	model_var_dir = os.path.join(exp_dir, 'var/model-400.pt')
+	model_var_dir = os.path.join(exp_dir, 'var/model-40.pt')
 	model_var = VAR(args.img_size)	
 	model_var.load_state_dict(torch.load(model_var_dir), strict = False)
 
@@ -257,6 +265,29 @@ def store_img(data, data_recon, model_var_dir, name = 'var', save = True):
 		matplotlib.image.imsave(os.path.join(model_var_dir, name + '_recon.png'), img_recon)
 	return img, img_recon
 	
+def embed_labels(input_image, labels, nrow = 1):
+	"""Adds labels next to rows of an image.
+
+	Parameters
+	----------
+	input_image : image
+		The image to which to add the labels
+	labels : list
+		The list of labels to plot
+	"""
+	new_width = input_image.width + 100
+	new_size = (new_width, input_image.height)
+	new_img = Image.new("RGB", new_size, color='white')
+	new_img.paste(input_image, (0, 0))
+	draw = ImageDraw.Draw(new_img)
+
+	for i, s in enumerate(labels):
+		x = float(i%nrow) * (input_image.width/float(nrow)) + (input_image.width/float(nrow)) * 1./4.
+		y = int(i/nrow) * input_image.height/(len(labels)/nrow) + \
+			input_image.height/(len(labels)/nrow) * 4./6.
+		draw.text(xy=(x, y), text=s, fill=(255, 255, 255))
+
+	return new_img
 def test_single(args):
 	args.batch_size = 1
 	model_var, model_vae, exp_dir, test_loader, loss_f = test_pre(args) 
@@ -347,17 +378,139 @@ def test_multiple(args, num_imgs = 10):
 
 		to_plot_var = torch.cat([data_var_list, recon_var_list])
 		to_plot_loss = torch.cat([data_loss_list, recon_loss_list])
+	print(to_plot_var.size())
 	var_grid = make_grid(to_plot_var, nrow = num_imgs).mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+	print(var_grid.shape)
 	loss_grid = make_grid(to_plot_loss, nrow = num_imgs).mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
 	concatenated = Image.fromarray(np.concatenate((var_grid, loss_grid), axis = 0))	
 	file_path = os.path.join(exp_dir, 'var/multiple.png')	
 	print(file_path)
 	concatenated.save(file_path)
 
+def test_rotate_vars(args, num_angles = 10, num_imgs = 10):
+	args.batch_size = 1
+	model_var, model_vae, exp_dir, test_loader, loss_f = test_pre(args) 
+	model_cls = MNIST_Net() 
+	model_cls.load_state_dict(torch.load(open('./utils/mnist_cnn.pt', 'rb')), strict = False)
+	
+	angles = [-180 + 2 * 180 * float(i)/num_angles for i in range(num_angles)]
+	img_grids = []
+	img_labels = []
+	
+	for angle in angles:
+		# Select from dataset
+		data_var_list = None
+		recon_var_list = None
+		var_list = None
+		pred_list = None
+		for i, (data, _) in enumerate(test_loader):
+			img = data.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+			img = Image.fromarray(img).rotate(angle)
+			data = TF.to_tensor(img)[:3, :, :] 
+			data_var = model_var(data)
+			data_recon, _, _ = model_vae(data)
+			data_pred = model_cls(data)
+			if data_var_list is None:
+				data_var_list = data.detach()
+				var_list = data_var.detach()
+				recon_var_list = data_recon.detach()
+				pred_list = data_pred.detach().exp()
+			else:
+				data_var_list = torch.cat((data_var_list, data.detach()), dim = 0)
+				var_list = torch.cat((var_list, data_var.detach()), dim = 0)
+				recon_var_list = torch.cat((recon_var_list, data_recon.detach()), dim = 0)
+				pred_list = torch.cat((pred_list, data_pred.detach().exp()), dim = 0)
+		
+			
+		sorted_var_data_recon_list = sorted(zip(var_list, data_var_list, recon_var_list, pred_list), reverse = True)[:num_imgs]
+		to_plot_var = None
+		
+		data_var_list = torch.stack([j for _, j, _, _ in sorted_var_data_recon_list], dim = 0).reshape((num_imgs, *args.img_size))
+		recon_var_list = torch.stack([j for _, _, j, _ in sorted_var_data_recon_list], dim = 0).reshape((num_imgs, *args.img_size))
+		pred_list = torch.stack([j.flatten()[0] for _, _, _, j in sorted_var_data_recon_list], dim = 0)
+		to_plot_var = torch.cat([data_var_list, recon_var_list])
+		var_grid = make_grid(to_plot_var, nrow = num_imgs).mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+		img_grids.append(var_grid)
+		img_labels.append('angle: {}'.format(angle))
+		img_labels.append('')
+		for i in range(num_imgs):
+			img_labels[-1] = img_labels[-1] + str(pred_list[i]) + ' '
+	concatenated = Image.fromarray(np.concatenate(img_grids, axis = 0))	
+	concatenated = add_labels(concatenated, img_labels)
+	file_path = os.path.join(exp_dir, 'var/multiple_rotateMNIST.png')	
+	print(file_path)
+	concatenated.save(file_path)
+
+def test_rotate_digits(args, num_angles = 10):
+	args.batch_size = 1
+	model_var, model_vae, exp_dir, test_loader, loss_f = test_pre(args) 
+	test_loader = get_dataloaders('mnist', batch_size = args.batch_size)
+
+	model_cls = MNIST_Net() 
+	model_cls.load_state_dict(torch.load(open('./utils/' + args.classifier + '.pt', 'rb')), strict = False)
+	
+	angles = [-180+ 2 * 180 * float(i)/num_angles for i in range(num_angles)]
+	img_grids = [i for i in range(10)]
+	img_labels = []
+	check = [False for i in range(10)]
+	
+	for i, (data, t) in enumerate(test_loader):
+		# Select from dataset
+		if all(check):
+			break
+		digit = t.flatten()[0]
+		if check[digit]:
+			continue
+		print("Find digit {}".format(digit))
+		data_var_list = None
+		recon_var_list = None
+		var_list = None
+		pred_list = None
+	  
+		data = make_grid(data)
+		img = Image.fromarray(data.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy())
+		for angle in angles:
+			print("Angle: {}".format(angle))
+			data = TF.to_tensor(img.rotate(angle))[0, :, :].unsqueeze(0).unsqueeze(0)
+			data_var = model_var(data)
+			data_recon, _, _ = model_vae(data)
+			data_pred = model_cls(data)
+			data_var = model_var(data)
+			data_recon, _, _ = model_vae(data)
+			pred = np.exp(data_pred.detach().flatten()[t[0]])
+			data_conf = np.exp(data_pred.detach().flatten()[t[0]])/np.sum(np.exp(data_pred.detach().flatten().numpy()))
+			print("Prediction confidence: {}".format(data_conf))
+			print("Variance: {}".format(data_var.flatten()[0]))
+			if data_var_list is None:
+				data_var_list = data.detach()
+				recon_var_list = data_recon.detach()
+				var_list = data_var.detach()
+				pred_list = data_pred.detach()
+			else:
+				data_var_list = torch.cat((data_var_list, data.detach()), dim = 0)
+				recon_var_list = torch.cat((recon_var_list, data_recon.detach()), dim = 0)
+				var_list = torch.cat((var_list, data_var.detach()), dim = 0)
+				pred_list = torch.cat((pred_list, data_pred.detach()), dim = 0)
+			img_labels.append("%d\n%1.1f" % (100. * data_conf, data_var.detach().flatten()[0]))
+		dumy_var_list = torch.zeros(recon_var_list.size())
+		to_plot_var = torch.cat([data_var_list, recon_var_list, dumy_var_list])
+		var_grid = make_grid(to_plot_var, nrow = len(angles), pad_value = 1 - get_background('mnist'))
+		var_grid = var_grid.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+		img_grids[digit] = var_grid
+
+		check[digit] = True
+	concatenated = Image.fromarray(np.concatenate(img_grids, axis = 0))	
+	concatenated = embed_labels(concatenated, img_labels, num_angles)
+	file_path = os.path.join(exp_dir, 'var/multiple_' + args.classifier + '.png')	
+	print(file_path)
+	concatenated.save(file_path)
+
+
+
 
 if __name__ == '__main__':
 	args = parse_arguments(sys.argv[1:])
-	main(args) 
+	#train(args) 
 	#test_single(args)
-	test_multiple(args)
-
+	#test_multiple(args)
+	test_rotate_digits(args, 5)
