@@ -1,0 +1,10 @@
+{
+    "img_size": [
+        1,
+        32,
+        32
+    ],
+    "dataset": "rotate",
+    "latent_dim": 10,
+    "model_type": "Burgess"
+}
