@@ -1,9 +1,0 @@
-{
-    "img_size": [
-        1,
-        32,
-        32
-    ],
-    "latent_dim": 1,
-    "model_type": "Burgess"
-}

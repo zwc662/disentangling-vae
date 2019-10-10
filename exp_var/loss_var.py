@@ -1,6 +1,9 @@
 """
 Module containing all vae losses.
 """
+import sys
+sys.path.append('/export/u1/homes/weichao/Workspace/disentangling-vae/disvae/models/')
+
 import abc
 import math
 
@@ -9,7 +12,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torch import optim
 
-from .discriminator import Discriminator
+from discriminator import Discriminator
 from disvae.utils.math import (log_density_gaussian, log_importance_weight_matrix,
 							   matrix_log_density_gaussian)
 

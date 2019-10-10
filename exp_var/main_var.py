@@ -1,6 +1,6 @@
 import argparse
 import logging
-import sys
+
 import os
 from configparser import ConfigParser
 
@@ -15,12 +15,16 @@ import matplotlib
 
 import numpy as np
 
+from var import VAR
+from training_var import Trainer
+from loss_var import get_loss_f
+
+import sys
+sys.path.append('/export/u1/homes/weichao/Workspace/disentangling-vae/')
+
 from disvae.utils.modelIO import save_model, load_model, load_metadata
-from disvae.models.vae import MODELS
 from disvae.models.losses import LOSSES, RECON_DIST
-from disvae.training_var import Trainer
-from disvae.models.loss_var import get_loss_f
-from disvae.models.var import VAR
+from disvae.models.vae import MODELS
 from utils.datasets import get_dataloaders, get_img_size, DATASETS, get_background
 from utils.helpers import (create_safe_directory, get_device, set_seed, get_n_param,
 						   get_config_section, update_namespace_, FormatterNoDuplicate)
@@ -28,8 +32,9 @@ from utils.visualize import GifTraversalsTraining
 from utils.viz_helpers import add_labels
 from utils.mnist_classifier import Net as MNIST_Net
 
-CONFIG_FILE = "hyperparam.ini"
-RES_DIR = "results"
+BASE = "../"
+CONFIG_FILE = BASE + "hyperparam.ini"
+RES_DIR = BASE + "results"
 LOG_LEVELS = list(logging._levelToName.values())
 ADDITIONAL_EXP = ['custom', "debug", "best_celeba", "best_dsprites"]
 EXPERIMENTS = ADDITIONAL_EXP + ["{}_{}".format(loss, data)
@@ -85,6 +90,7 @@ def parse_arguments(args_to_parse):
 						  help='Batch size for training.')
 	training.add_argument('--lr', type=float, default=default_config['lr'],
 						  help='Learning rate.')
+	training.add_argument('-g', '--gamma', type = float, default = 1., help = 'gamma for var')
 
 	# Model Options
 	model = parser.add_argument_group('Model specfic options')
@@ -174,7 +180,7 @@ def parse_arguments(args_to_parse):
 
 	return args
 
-def train(args):
+def train_var(args):
 	formatter = logging.Formatter('%(asctime)s %(levelname)s - %(funcName)s: %(message)s',
 									"%H:%M:%S")
 	logger = logging.getLogger(__name__)
@@ -196,7 +202,7 @@ def train(args):
 
 	# Prepare VAR model
 	args.img_size = get_img_size(args.dataset)
-	model_var_dir = os.path.join(exp_dir, 'var')
+	model_var_dir = os.path.join(exp_dir, 'var_gamma_' + str(args.gamma))
 	create_safe_directory(model_var_dir, logger=logger)
 	model_var = VAR(args.img_size)	
 	logger.info('Num parameters in model: {}'.format(get_n_param(model_var)))
@@ -210,7 +216,7 @@ def train(args):
 	# Train
 	optimizer = optim.Adam(model_var.parameters(), lr = args.lr)
 	model_var = model_var.to(device)
-	loss_f = get_loss_f()
+	loss_f = get_loss_f(reg = args.gamma)
 	gif_visualizer = GifTraversalsTraining(model_vae, dataset, model_vae_dir)
 	trainer = Trainer(model_var, model_vae, optimizer, loss_f,
 						device = device,
@@ -242,16 +248,16 @@ def test_pre(args):
 	model_vae = load_model(exp_dir, is_gpu = False)
 
 	args.img_size = get_img_size(args.dataset)
-	model_var_dir = os.path.join(exp_dir, 'var/model-40.pt')
+	model_var_dir = os.path.join(exp_dir, 'var_gamma_' + str(args.gamma))
 	model_var = VAR(args.img_size)	
-	model_var.load_state_dict(torch.load(model_var_dir), strict = False)
+	model_var.load_state_dict(torch.load(os.path.join(model_var_dir, 'model-40.pt')), strict = False)
 
 	meta_data = load_metadata(exp_dir)
 	dataset = meta_data['dataset']
 	test_loader = get_dataloaders(dataset, batch_size=args.batch_size, logger=logger)
 	loss_f = get_loss_f()
 
-	return model_var, model_vae, exp_dir, test_loader, loss_f
+	return model_var, model_vae, exp_dir, model_var_dir, test_loader, loss_f
 
 def store_img(data, data_recon, model_var_dir, name = 'var', save = True):
 	img = data.squeeze(0).cpu().numpy()
@@ -290,7 +296,7 @@ def embed_labels(input_image, labels, nrow = 1):
 	return new_img
 def test_single(args):
 	args.batch_size = 1
-	model_var, model_vae, exp_dir, test_loader, loss_f = test_pre(args) 
+	model_var, model_vae, exp_dir, model_var_dir, test_loader, loss_f = test_pre(args) 
 
 	# Synthesize image
 	x = torch.tensor(np.random.random([3, 64, 64]), requires_grad = True).unsqueeze(0).float()
@@ -306,7 +312,7 @@ def test_single(args):
 		x = x - 0.005 * grad_x	
 		diff = torch.sum((x - x_)**2)
 	x_recon, _, _ = model_vae(x)	
-	store_img(x.detach(), x_recon.detach(), os.path.join(exp_dir, 'var'), name = 'syn')
+	store_img(x.detach(), x_recon.detach(), model_va_dir, name = 'syn')
 	
 	# Select from dataset
 	max_var = -float('inf')
@@ -327,12 +333,12 @@ def test_single(args):
 			max_data_loss = data
 			max_data_recon_loss = data_recon
 
-	store_img(max_data_var, max_data_recon_var, os.path.join(exp_dir, 'var'), name = 'var')
-	store_img(max_data_loss, max_data_recon_loss, os.path.join(exp_dir, 'var'), name = 'loss') 	
+	store_img(max_data_var, max_data_recon_var, model_var_dir, name = 'var')
+	store_img(max_data_loss, max_data_recon_loss, model_var_dir, name = 'loss') 	
 
 def test_multiple(args, num_imgs = 10):
 	args.batch_size = 1
-	model_var, model_vae, exp_dir, test_loader, loss_f = test_pre(args) 
+	model_var, model_vae, exp_dir, model_var_dir, test_loader, loss_f = test_pre(args) 
 
 	# Select from dataset
 	data_var_list = None
@@ -383,13 +389,13 @@ def test_multiple(args, num_imgs = 10):
 	print(var_grid.shape)
 	loss_grid = make_grid(to_plot_loss, nrow = num_imgs).mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
 	concatenated = Image.fromarray(np.concatenate((var_grid, loss_grid), axis = 0))	
-	file_path = os.path.join(exp_dir, 'var/multiple.png')	
+	file_path = os.path.join(model_var_dir, 'multiple.png')	
 	print(file_path)
 	concatenated.save(file_path)
 
 def test_rotate_vars(args, num_angles = 10, num_imgs = 10):
 	args.batch_size = 1
-	model_var, model_vae, exp_dir, test_loader, loss_f = test_pre(args) 
+	model_var, model_vae, exp_dir, model_var_dir, test_loader, loss_f = test_pre(args) 
 	model_cls = MNIST_Net() 
 	model_cls.load_state_dict(torch.load(open('./utils/mnist_cnn.pt', 'rb')), strict = False)
 	
@@ -437,13 +443,13 @@ def test_rotate_vars(args, num_angles = 10, num_imgs = 10):
 			img_labels[-1] = img_labels[-1] + str(pred_list[i]) + ' '
 	concatenated = Image.fromarray(np.concatenate(img_grids, axis = 0))	
 	concatenated = add_labels(concatenated, img_labels)
-	file_path = os.path.join(exp_dir, 'var/multiple_rotateMNIST.png')	
+	file_path = os.path.join(model_var_dir, 'multiple_rotateMNIST.png')	
 	print(file_path)
 	concatenated.save(file_path)
 
 def test_rotate_digits(args, num_angles = 10):
 	args.batch_size = 1
-	model_var, model_vae, exp_dir, test_loader, loss_f = test_pre(args) 
+	model_var, model_vae, exp_dir, model_var_dir, test_loader, loss_f = test_pre(args) 
 	test_loader = get_dataloaders('mnist', batch_size = args.batch_size)
 
 	model_cls = MNIST_Net() 
@@ -501,8 +507,7 @@ def test_rotate_digits(args, num_angles = 10):
 		check[digit] = True
 	concatenated = Image.fromarray(np.concatenate(img_grids, axis = 0))	
 	concatenated = embed_labels(concatenated, img_labels, num_angles)
-	file_path = os.path.join(exp_dir, 'var/multiple_' + args.classifier + '.png')	
-	print(file_path)
+	file_path = os.path.join(model_var_dir, 'multiple_' + args.classifier + '.png')	
 	concatenated.save(file_path)
 
 
@@ -510,7 +515,9 @@ def test_rotate_digits(args, num_angles = 10):
 
 if __name__ == '__main__':
 	args = parse_arguments(sys.argv[1:])
-	#train(args) 
-	#test_single(args)
-	#test_multiple(args)
-	test_rotate_digits(args, 5)
+	for i in range(10):
+		args.gamma = 5. * (0.5**i)
+		train_var(args) 
+		#test_single(args)
+		#test_multiple(args)
+		test_rotate_digits(args, 5)

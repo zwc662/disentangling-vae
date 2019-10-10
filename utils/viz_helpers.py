@@ -106,6 +106,7 @@ def make_grid_img(tensor, **kwargs):
         Additional arguments to `make_grid_img`.
     """
     grid = make_grid(tensor, **kwargs)
+    
     img_grid = grid.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0)
     img_grid = img_grid.to('cpu', torch.uint8).numpy()
     return img_grid

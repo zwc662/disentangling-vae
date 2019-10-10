@@ -8,6 +8,9 @@ from tqdm import trange
 import torch
 from torch.nn import functional as F
 
+
+import sys
+sys.path.append('/export/u1/homes/weichao/Workspace/disentangling-vae/')
 from disvae.utils.modelIO import save_model
 
 
