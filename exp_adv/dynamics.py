@@ -22,9 +22,9 @@ from datetime import datetime
 from PIL import Image
 
 
-BASE = "../"
-CONFIG_FILE = BASE + "hyperparam.ini"
-RES_DIR = BASE + "exp_adv/"
+BASE = '/export/u1/homes/weichao/Workspace/disentangling-vae/'
+ROOT_DIR = BASE + "exp_adv/"
+RES_DIR = ROOT_DIR + "/results/"
 
 		
 
@@ -32,11 +32,11 @@ RES_DIR = BASE + "exp_adv/"
 class VAE_Dynamics():
 	def __init__(self, vae):
 		""" Load VAE models """
-		exp_dir = os.path.join(RES_DIR, vae) 
+		exp_dir = os.path.join(ROOT_DIR, vae) 
 		self.model = load_model(exp_dir, is_gpu = False)
 		self.device = 'cpu'
 		self.model.eval()
-		self.cur_data = None
+		self.cur_state = None
 
 	def _state_size(self):
 		return self.model.img_size
@@ -46,89 +46,117 @@ class VAE_Dynamics():
 
 	def _reset(self, data):
 		""" Load data """
-		self.cur_data = data
+		self.cur_state = data
 
 	def _step(self, action):
 		with torch.no_grad():
-			means, logvars = self.model.encoder(self.cur_data.unsqueeze(0).cpu())
+			means, logvars = self.model.encoder(self.cur_state.unsqueeze(0).cpu())
 			latent_var = means[0]
-			latent_var += torch.tensor(action).cpu()
-			nxt_data = self.model.decoder(latent_var.unsqueeze(0)).cpu()[0]
-		return nxt_data
+			latent_var += torch.tensor(action.flatten()).cpu()
+			nxt_state = self.model.decoder(latent_var.unsqueeze(0)).cpu()[0]
+		return nxt_state
+
+class Basic_Dynamics():
+	def __init__(self, vae):
+		self.cur_state = None
+
+	def _state_size(self):
+		return torch.empty(1, 32, 32).size()
+
+	def _action_size(self):
+		return torch.empty(1, 32, 32).size()
+
+	def _reset(self, data):
+		""" Load data """
+		self.cur_state = data
+
+	def _step(self, action):
+		nxt_state = self.cur_state + torch.tensor(action)
+		nxt_state = nxt_state.clamp(0., 1.)
+		return nxt_state
 
 
-class Dynamics(VAE_Dynamics):
-	def __init__(self, dataset, vae, cls, target):
+class Dynamics(Basic_Dynamics):
+	def __init__(self, dataset, vae, cls, target = 11):
 		super(Dynamics, self).__init__(vae)
 		self.dataset = dataset
 		self.classifier = MNIST_Net()
 		self.classifier.load_state_dict(\
-			torch.load(open(os.path.join(RES_DIR, cls, 'model.pt'), 'rb')), strict = False)
+			torch.load(open(os.path.join(ROOT_DIR, cls, 'model.pt'), 'rb')), strict = False)
 		
 		""" Target logits """
-		self.target_logits = np.zeros([10])
-		self.target_logits[target] = 1.0
+		if target <= 9:
+			self.target_logits = np.zeros([10])
+			self.target_logits[target] = 1.0
 	
-		self.initial_data = None
 		self.initial_state = None
+		self.initial_target = None
+		self.initial_logits = None
 		self.cur_state = None
 		self.cur_step = None
+
+
+		timestampStr = datetime.now().strftime("%d-%b-%Y-%H-%M-%S-%f")
+		self.result_dir = os.path.join(RES_DIR, timestampStr)
+		os.mkdir(self.result_dir)
+		
+		data_loader = get_dataloaders(self.dataset, batch_size=1)
+		while True:
+			(initial_state, targets) = next(iter(data_loader))
+			self.initial_state = initial_state[0]
+			self.initial_logits = self.classifier(self.initial_state.unsqueeze(0)).detach().cpu().numpy()
+			self.initial_target = targets[0]
+
+			if self.initial_target != target:
+				break
+		self._reset(self.initial_state)	
+		cur_image = self.render()
+		cur_image.save(os.path.join(self.result_dir, '0.png'))
 	
 	def action_size(self):
 		return self._action_size()
 	
 	def state_size(self):
-		return np.product(self._state_size())
+		#return np.product(self._state_size())
+		return self._state_size()
 	
 	def reset(self):
 		self.cur_step = 0
-		timestampStr = datetime.now().strftime("%d-%b-%Y-%H-%M-%S-%f")
-		os.mkdir(os.path.join(RES_DIR, timestampStr))
-		
-		data_loader = get_dataloaders(self.dataset, batch_size=1)
-		while True:
-			(initial_data, targets) = next(iter(data_loader))
-			self.initial_data = initial_data[0]
-			initial_target = targets[0]
-			if initial_target != np.argmax(self.target_logits):
-				break
-		self._reset(self.initial_data)	
-		cur_image = self.render()
-		cur_image.save(os.path.join(RES_DIR, timestampStr, '0.png'))
-		
-		self.initial_state = self.initial_data.flatten().cpu().numpy()
-		self.cur_state = self.initial_state
-		return self.initial_state
+		self._reset(self.initial_state)
+		return self.cur_state.cpu().numpy()
 		
 	def render(self):
-		img = self.cur_data.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+		img = self.cur_state.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
 		toImage = torchvision.transforms.ToPILImage()
 		img = toImage(img)	
 		#img.show()
 		return img
 
-	def reward(self):
+	def reward(self, action = None):
 		with torch.no_grad():
-			pred_logits = self.classifier(self.cur_data.unsqueeze(0))[0].cpu().numpy()
-		rew_logits = - np.linalg.norm(self.target_logits - pred_logits, ord = 2)	
-		rew_diff = - np.linalg.norm(np.abs(self.cur_state - self.initial_state), ord = 2)
-
-		if np.linalg.norm(self.target_logits - pred_logits, ord = 2) == 0:
+			pred_logits = self.classifier(self.cur_state.unsqueeze(0)).cpu().numpy()
+		#rew_logits = - np.linalg.norm(self.target_logits - pred_logits, ord = 2)	
+		rew_action = - np.linalg.norm(action.flatten())
+		if np.argmax(self.target_logits) == np.argmax(pred_logits):
+			rew_logits = 100.0
 			done = True	
 		else:
+			rew_logits = 0.0
 			done = False
 
-		return rew_logits + rew_diff, done
+		return rew_logits + rew_action, done
 
 	def step(self, action):
 		self.cur_step += 1
-		nxt_data = self._step(action)
-		self.cur_data = nxt_data
-		reward, done = self.reward()
-		self.cur_state = self.cur_data.flatten().cpu().numpy()
-		
+		nxt_state = self._step(action)
+		self.cur_state = nxt_state
+		reward, done = self.reward(action)
+		cur_image = self.render()
 		if done:
-			cur_image.save(os.path.join(RES_DIR, timestampStr, self.cur_step + '.png'))
+			cur_image.save(os.path.join(self.result_dir, 'Done_' + self.cur_step + '.png'))
 	
-		return self.cur_state, reward, done, None
+		return self.cur_state.cpu().numpy(), reward, done, None
+
+	def close(self):
+		self.cur_state = None
 
