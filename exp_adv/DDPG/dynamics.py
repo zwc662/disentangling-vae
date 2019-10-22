@@ -30,7 +30,7 @@ RES_DIR = ROOT_DIR + "/DDPG/results/"
 
 
 class VAE_Dynamics():
-	def __init__(self, vae):
+	def __init__(self, vae = 'VAE_mnist'):
 		""" Load VAE models """
 		exp_dir = os.path.join(ROOT_DIR, vae) 
 		self.model = load_model(exp_dir, is_gpu = False)
@@ -50,10 +50,10 @@ class VAE_Dynamics():
 
 	def _step(self, action):
 		with torch.no_grad():
-			means, logvars = self.model.encoder(self.cur_state.unsqueeze(0).cpu())
-			latent_var = means[0]
+			means, logvars = self.model.encoder(self.cur_state)
+			latent_var = means.cpu()[0]
 			latent_var += torch.tensor(action.flatten()).cpu()
-			nxt_state = self.model.decoder(latent_var.unsqueeze(0)).cpu()[0]
+			nxt_state = self.model.decoder(latent_var.unsqueeze(0)).cpu()
 		return nxt_state
 
 class Basic_Dynamics():
@@ -76,7 +76,7 @@ class Basic_Dynamics():
 		return nxt_state
 
 
-class Dynamics(Basic_Dynamics):
+class Dynamics(VAE_Dynamics):
 	def __init__(self, dataset, vae, cls, target = 10):
 		super(Dynamics, self).__init__(vae)
 		self.dataset = dataset
@@ -91,6 +91,7 @@ class Dynamics(Basic_Dynamics):
 		#self.initial_logits = None
 		self.cur_state = None
 		self.cur_step = None
+		self.target = target
 
 
 		timestampStr = datetime.now().strftime("%d-%b-%Y-%H-%M-%S-%f")
@@ -103,6 +104,9 @@ class Dynamics(Basic_Dynamics):
 			self.initial_state = initial_state
 			self.initial_logits = self.classifier(self.initial_state).detach().cpu().numpy()
 			self.initial_target = initial_target[0]
+
+			self.initial_logits_dummy = np.zeros([10])
+			self.initial_logits_dummy[self.initial_target] = 1.0
 
 			if target is not None:
 				if target > 9 or self.initial_target == target:
@@ -140,12 +144,12 @@ class Dynamics(Basic_Dynamics):
 		rew_logits = 0.
 		rew_action = 0
 		with torch.no_grad():
-			pred_logits = self.classifier(self.cur_state)[0].cpu().numpy()
+			pred_logits = np.exp(self.classifier(self.cur_state)[0].cpu().numpy())
 			
 		if self.target_logits is not None:
 			#rew_logits = - np.linalg.norm(self.target_logits - np.exp(pred_logits), ord = 2)
-			rew_logits = np.sum(pred_logits * self.target_logits + \
-							np.log(1 - np.exp(pred_logits)) * (1 - self.target_logits))
+			rew_logits = np.sum(np.log(pred_logits) * (self.target_logits - self.initial_logits_dummy))\
+							#np.log(1 - np.exp(pred_logits)) * (1 - self.target_logits))
 			if np.argmax(self.target_logits) == np.argmax(pred_logits):
 				rew_logits += 100.0
 				done = True	
@@ -161,23 +165,26 @@ class Dynamics(Basic_Dynamics):
 				rew_logits += 0.0
 				done = False
 
-		rew_action = - np.linalg.norm(action.flatten())
+		rew_action = - 0.0 * np.linalg.norm(action.flatten())
 		return rew_logits + rew_action, done
 
 	def step(self, action):
 		self.cur_step += 1
 
+		'''
 		idx = np.argmax(np.abs(action))
 		sign = np.sign(np.max(action))
 		action *= 0.0
 		action[0, 0, int(idx/32), idx%32] += sign * 1./255.
+		'''
+		action = 1e-2 * action/np.linalg.norm(action, ord = 2)
 		nxt_state = self._step(action)
 		self.cur_state = nxt_state
 
 		reward, done = self.reward(action)
 		if done:
 			cur_image = self.render()
-			cur_image.save(os.path.join(self.result_dir, 'Done_' + self.cur_step + '.png'))
+			cur_image.save(os.path.join(self.result_dir, 'Done_' + str(self.cur_step) + '.png'))
 	
 		return self.cur_state.cpu().numpy(), reward, done, None
 

@@ -76,7 +76,7 @@ class Basic_Dynamics():
 		return nxt_state
 
 
-class Dynamics(Basic_Dynamics):
+class Dynamics(VAE_Dynamics):
 	def __init__(self, dataset, vae, cls, target = 9):
 		super(Dynamics, self).__init__(vae)
 		self.dataset = dataset

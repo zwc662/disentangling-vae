@@ -173,6 +173,8 @@ class Actor(nn.Module):
 		self.convT1 = nn.ConvTranspose2d(hid_channels, hid_channels, kernel_size, **cnn_kwargs)
 		self.convT2 = nn.ConvTranspose2d(hid_channels, hid_channels, kernel_size, **cnn_kwargs)
 		self.convT3 = nn.ConvTranspose2d(hid_channels, n_chan, kernel_size, **cnn_kwargs)
+	
+		self.fc_action = nn.Linear(np.product(self.reshape), self.action_size)
 		
 
 	def forward(self, x):
@@ -198,10 +200,22 @@ class Actor(nn.Module):
 		x = torch.relu(self.convT1(x))
 		x = torch.relu(self.convT2(x))
 		# Sigmoid activation for final conv layer
-		x = torch.sigmoid(self.convT3(x))
-		x = x.view(batch_size, np.product(self.action_size))
-		x = F.softmax(x)
-		x = x.view(batch_size, *self.action_size)
+		x = torch.relu(self.convT3(x))
+			
+		# Convolutional layers with ReLu activations
+		x = torch.relu(self.conv1(x))
+		x = torch.relu(self.conv2(x))
+		x = torch.relu(self.conv3(x))
+
+		# Fully connected layers with ReLu activations
+		x = x.view((batch_size, -1))
+		x = torch.relu(self.lin1(x))
+		x = torch.relu(self.lin2(x))
+
+		# Fully connected layer for log variance and mean
+		# Log std-dev in paper (bear in mind)
+		x = torch.relu(self.lin3(x))
+		x = self.fc_action(x)
 		return x
 
 class Critic_(nn.Module):
@@ -237,7 +251,7 @@ class Critic_(nn.Module):
 		return self.fc3(x)
 
 
-class Critic_VAE(nn.Module):
+class Critic(nn.Module):
 	def __init__(self, state_size, action_size, seed, fcs1_units=400, fc2_units=300):
 		super(Critic, self).__init__()
 		self.conv1 = nn.Conv2d(1, 20, 5, 1)
@@ -260,7 +274,7 @@ class Critic_VAE(nn.Module):
 		
 		return x
 
-class Critic(nn.Module):
+class Critic__(nn.Module):
 	def __init__(self, state_size, action_size, seed, fcs1_units=400, fc2_units=300):
 		super(Critic, self).__init__()
 		self.conv1 = nn.Conv2d(1, 20, 5, 1)
