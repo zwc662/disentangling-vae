@@ -515,7 +515,7 @@ def test_rotate_digits(args, num_angles = 10):
 
 if __name__ == '__main__':
 	args = parse_arguments(sys.argv[1:])
-	for i in range(10):
+	for i in range(1):
 		args.gamma = 5. * (0.5**i)
 		train_var(args) 
 		#test_single(args)

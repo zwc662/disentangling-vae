@@ -5,11 +5,11 @@
 
 logger="train_all.out"
 echo "STARTING" > $logger
-for loss in  betaB factor btcvae betaH VAE
+for loss in  betaB VAE factor btcvae betaH
 do
     echo " " >> $logger
     echo $loss >> $logger
-    for dataset in dsprites # celeba chairs mnist
+    for dataset in rotate #dsprites celeba chairs mnist
     do
         echo $dataset >> $logger
         python main.py "$loss"_"$dataset" -x "$loss"_"$dataset"  --no-progress-bar &
