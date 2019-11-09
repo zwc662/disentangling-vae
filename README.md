@@ -1,3 +1,9 @@
+# Shortcut
+
+* In the root path, run `sh ./bin/train_all.sh` to train  VAE, β-VAE, enhanced β-VAE, Factor VAE, β-TCVAE on a rotated MNIST data set. 
+* After training, find the model and hyperparameter files in `./results/<model>_rotate/` where `<model>` can be `VAE` for normal VAE, `betaH` for β-VAE, `betaB` for enhanced β-VAE, `factor` for Factor VAE, `btcvae` for β-TCVAE.  
+* In the root path, run `python main_viz.py <model> reconstruct-traverse --is-show-loss --is-posterior` to swipe value in each dimension and generate an image `./results/<model>_rotate/reconstruct_traverse.png`. 
+
 # Disentangled VAE [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/YannDubs/disentangling-vae/blob/master/LICENSE) [![Python 3.6+](https://img.shields.io/badge/python-3.6+-blue.svg)](https://www.python.org/downloads/release/python-360/)
 
 This repository contains code (training / metrics / plotting) to investigate disentangling in VAE as well as compare 5 different losses ([summary of the differences](#losses-explanation)) using a [single architecture](#single-model-comparison):
